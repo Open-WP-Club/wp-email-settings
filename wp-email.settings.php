@@ -3,8 +3,8 @@
 /**
  * Plugin Name: WP Email Settings
  * Plugin URI: http://example.com/wp-email-settings
- * Description: A plugin to manage and log WordPress emails with customizable settings
- * Version: 2.0
+ * Description: A plugin to manage and log WordPress emails with customizable settings and statistics
+ * Version: 2.2
  * Author: Your Name
  * Author URI: http://example.com
  * License: GPL2
@@ -33,22 +33,15 @@ class WP_Email_Settings
   public function init()
   {
     $this->options = get_option('wp_email_settings_options');
-
-    // Always intercept emails for logging
     add_filter('wp_mail', array($this, 'intercept_email'), 10, 1);
   }
 
   public function intercept_email($args)
   {
-    // Log the email
     $this->log_email($args);
-
-    // Check if all emails should be stopped
     if (isset($this->options['stop_all_emails']) && $this->options['stop_all_emails']) {
       return array();
     }
-
-    // Check individual email types
     $email_types = array(
       'update_emails' => array('auto_core_update_send_email', 'auto_plugin_update_send_email', 'auto_theme_update_send_email'),
       'password_emails' => array('send_password_change_email'),
@@ -56,7 +49,6 @@ class WP_Email_Settings
       'new_user_emails' => array('wp_new_user_notification_email_admin', 'wp_new_user_notification_email'),
       'comment_emails' => array('comment_notification_recipients', 'comment_moderation_recipients')
     );
-
     foreach ($email_types as $option => $filters) {
       if (isset($this->options["stop_{$option}"]) && $this->options["stop_{$option}"]) {
         foreach ($filters as $filter) {
@@ -64,7 +56,6 @@ class WP_Email_Settings
         }
       }
     }
-
     return $args;
   }
 
@@ -72,48 +63,34 @@ class WP_Email_Settings
   {
     $to = is_array($args['to']) ? implode(', ', $args['to']) : $args['to'];
     $headers = is_array($args['headers']) ? implode("\n", $args['headers']) : $args['headers'];
-    $log_entry = date('Y-m-d H:i:s') . "\n" .
-      "To: " . $to . "\n" .
-      "Subject: " . $args['subject'] . "\n" .
-      "Headers: " . $headers . "\n" .
-      "Message: " . substr($args['message'], 0, 100) . "...\n\n";
+    $log_entry = date('Y-m-d H:i:s') . " | " .
+      "To: " . $to . " | " .
+      "Subject: " . $args['subject'] . " | " .
+      "Headers: " . $headers . " | " .
+      "Message: " . substr(wp_strip_all_tags($args['message']), 0, 100) . "...\n";
     file_put_contents($this->log_file, $log_entry, FILE_APPEND);
   }
 
   public function add_admin_menu()
   {
-    // Add main menu page
-    $main_page = add_menu_page(
+    add_options_page(
       'WP Email Settings',
       'Email Settings',
       'manage_options',
       'wp-email-settings',
-      array($this, 'render_settings_page'),
-      'dashicons-email-alt'
-    );
-
-    // Add submenu page for logs
-    add_submenu_page(
-      'wp-email-settings',
-      'Email Logs',
-      'Email Logs',
-      'manage_options',
-      'wp-email-settings-log',
-      array($this, 'render_log_page')
+      array($this, 'render_settings_page')
     );
   }
 
   public function register_settings()
   {
     register_setting('wp_email_settings_options', 'wp_email_settings_options');
-
     add_settings_section(
       'wp_email_settings_main',
       'Email Settings',
       array($this, 'section_text'),
       'wp-email-settings'
     );
-
     $email_options = array(
       'stop_all_emails' => 'Stop All Emails',
       'stop_update_emails' => 'Stop Update Emails',
@@ -122,7 +99,6 @@ class WP_Email_Settings
       'stop_new_user_emails' => 'Stop New User Emails',
       'stop_comment_emails' => 'Stop Comment Notification Emails'
     );
-
     foreach ($email_options as $option => $label) {
       add_settings_field(
         $option,
@@ -149,29 +125,124 @@ class WP_Email_Settings
 
   public function render_settings_page()
   {
+    $active_tab = isset($_GET['tab']) ? $_GET['tab'] : 'settings';
 ?>
     <div class="wrap">
       <h1>WP Email Settings</h1>
-      <form method="post" action="options.php">
+      <h2 class="nav-tab-wrapper">
+        <a href="?page=wp-email-settings&tab=settings" class="nav-tab <?php echo $active_tab == 'settings' ? 'nav-tab-active' : ''; ?>">Settings</a>
+        <a href="?page=wp-email-settings&tab=logs" class="nav-tab <?php echo $active_tab == 'logs' ? 'nav-tab-active' : ''; ?>">Logs</a>
+        <a href="?page=wp-email-settings&tab=statistics" class="nav-tab <?php echo $active_tab == 'statistics' ? 'nav-tab-active' : ''; ?>">Statistics</a>
+      </h2>
+      <div class="wp-email-settings-box">
         <?php
-        settings_fields('wp_email_settings_options');
-        do_settings_sections('wp-email-settings');
-        submit_button();
+        if ($active_tab == 'settings') {
+          $this->render_settings_tab();
+        } elseif ($active_tab == 'logs') {
+          $this->render_log_page();
+        } else {
+          $this->render_statistics_page();
+        }
         ?>
-      </form>
+      </div>
     </div>
+  <?php
+  }
+
+  public function render_settings_tab()
+  {
+  ?>
+    <form method="post" action="options.php">
+      <?php
+      settings_fields('wp_email_settings_options');
+      do_settings_sections('wp-email-settings');
+      submit_button();
+      ?>
+    </form>
   <?php
   }
 
   public function render_log_page()
   {
+    $log_content = file_get_contents($this->log_file);
+    $log_entries = array_filter(explode("\n", $log_content));
   ?>
-    <div class="wrap">
-      <h1>Email Logs</h1>
-      <textarea readonly style="width: 100%; height: 600px;">
-                <?php echo file_get_contents($this->log_file); ?>
-            </textarea>
+    <div class="wp-email-settings-log">
+      <?php
+      foreach ($log_entries as $index => $entry) {
+        $parts = explode(' | ', $entry);
+        $timestamp = array_shift($parts);
+        echo '<div class="log-entry">';
+        echo '<span class="log-number">' . ($index + 1) . '</span>';
+        echo '<span class="log-timestamp">' . esc_html($timestamp) . '</span>';
+        echo '<div class="log-details">';
+        foreach ($parts as $part) {
+          $key_value = explode(': ', $part, 2);
+          if (count($key_value) == 2) {
+            echo '<span class="log-' . sanitize_title($key_value[0]) . '">';
+            echo '<strong>' . esc_html($key_value[0]) . ':</strong> ' . esc_html($key_value[1]);
+            echo '</span>';
+          }
+        }
+        echo '</div>';
+        echo '</div>';
+      }
+      ?>
     </div>
+  <?php
+  }
+
+  public function render_statistics_page()
+  {
+    $log_content = file_get_contents($this->log_file);
+    $log_entries = array_filter(explode("\n", $log_content));
+    $total_emails = count($log_entries);
+
+    $email_types = array(
+      'update_emails' => 'Update Emails',
+      'password_emails' => 'Password Emails',
+      'email_change_emails' => 'Email Change Notifications',
+      'new_user_emails' => 'New User Emails',
+      'comment_emails' => 'Comment Notification Emails'
+    );
+
+  ?>
+    <h3>Email Statistics</h3>
+    <p>Total emails logged: <?php echo $total_emails; ?></p>
+
+    <h3>Active Email Stopping Settings</h3>
+    <ul>
+      <?php
+      if (isset($this->options['stop_all_emails']) && $this->options['stop_all_emails']) {
+        echo '<li><strong>All emails are currently stopped</strong></li>';
+      } else {
+        foreach ($email_types as $option => $label) {
+          if (isset($this->options["stop_{$option}"]) && $this->options["stop_{$option}"]) {
+            echo '<li>' . $label . ' are currently stopped</li>';
+          }
+        }
+      }
+      ?>
+    </ul>
+
+    <h3>Email Type Distribution</h3>
+    <ul>
+      <?php
+      $type_count = array_fill_keys(array_keys($email_types), 0);
+      foreach ($log_entries as $entry) {
+        foreach ($email_types as $type => $label) {
+          if (strpos($entry, $type) !== false) {
+            $type_count[$type]++;
+          }
+        }
+      }
+      foreach ($email_types as $type => $label) {
+        $count = $type_count[$type];
+        $percentage = $total_emails > 0 ? round(($count / $total_emails) * 100, 2) : 0;
+        echo "<li>{$label}: {$count} ({$percentage}%)</li>";
+      }
+      ?>
+    </ul>
 <?php
   }
 
@@ -181,7 +252,7 @@ class WP_Email_Settings
       $wp_admin_bar->add_node(array(
         'id'    => 'wp-email-settings-notice',
         'title' => 'Emails Stopped',
-        'href'  => admin_url('admin.php?page=wp-email-settings'),
+        'href'  => admin_url('options-general.php?page=wp-email-settings'),
         'meta'  => array('class' => 'wp-email-settings-notice'),
       ));
     }
