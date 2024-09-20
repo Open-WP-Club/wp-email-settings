@@ -1,0 +1,82 @@
+/* admin-style.css */
+.wp-email-settings-box {
+  background: #fff;
+  border: 1px solid #ccd0d4;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, .04);
+  padding: 20px;
+  margin-top: 20px;
+}
+
+#wp-admin-bar-wp-email-settings-notice .ab-item {
+  background-color: #ca4a1f !important;
+  color: #fff !important;
+}
+
+#wp-admin-bar-wp-email-settings-notice:hover .ab-item {
+  background-color: #b44218 !important;
+}
+
+.wp-email-settings-box form {
+  margin-top: 0;
+}
+
+.wp-email-settings-log {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.log-entry {
+  background-color: #f9f9f9;
+  border: 1px solid #e5e5e5;
+  margin-bottom: 10px;
+  padding: 10px;
+  position: relative;
+  padding-left: 50px;
+}
+
+.log-number {
+  position: absolute;
+  left: 5px;
+  top: 10px;
+  color: #999;
+  font-size: 0.9em;
+}
+
+.log-timestamp {
+  font-weight: bold;
+  color: #333;
+  display: block;
+  margin-bottom: 5px;
+}
+
+.log-details {
+  background-color: #fff;
+  border: 1px solid #e5e5e5;
+  padding: 10px;
+}
+
+.log-to,
+.log-subject,
+.log-headers,
+.log-message {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.log-to strong,
+.log-subject strong,
+.log-headers strong,
+.log-message strong {
+  color: #0073aa;
+}
+
+/* Statistics styles */
+.wp-email-settings-box h3 {
+  margin-top: 20px;
+  margin-bottom: 10px;
+}
+
+.wp-email-settings-box ul {
+  list-style-type: disc;
+  padding-left: 20px;
+}
