@@ -3,8 +3,8 @@
 /**
  * Plugin Name: WP Email Settings
  * Plugin URI: http://example.com/wp-email-settings
- * Description: A plugin to manage and log WordPress emails with customizable settings and statistics
- * Version: 2.2
+ * Description: A plugin to manage and log WordPress emails with customizable settings and comprehensive statistics
+ * Version: 2.4
  * Author: Your Name
  * Author URI: http://example.com
  * License: GPL2
@@ -63,10 +63,10 @@ class WP_Email_Settings
   {
     $to = is_array($args['to']) ? implode(', ', $args['to']) : $args['to'];
     $headers = is_array($args['headers']) ? implode("\n", $args['headers']) : $args['headers'];
-    $log_entry = date('Y-m-d H:i:s') . " | " .
-      "To: " . $to . " | " .
-      "Subject: " . $args['subject'] . " | " .
-      "Headers: " . $headers . " | " .
+    $log_entry = date('Y-m-d H:i:s') . "|" .
+      "To: " . $to . "|" .
+      "Subject: " . $args['subject'] . "|" .
+      "Headers: " . $headers . "|" .
       "Message: " . substr(wp_strip_all_tags($args['message']), 0, 100) . "...\n";
     file_put_contents($this->log_file, $log_entry, FILE_APPEND);
   }
@@ -125,23 +125,23 @@ class WP_Email_Settings
 
   public function render_settings_page()
   {
-    $active_tab = isset($_GET['tab']) ? $_GET['tab'] : 'settings';
+    $active_tab = isset($_GET['tab']) ? $_GET['tab'] : 'statistics';
 ?>
     <div class="wrap">
       <h1>WP Email Settings</h1>
       <h2 class="nav-tab-wrapper">
+        <a href="?page=wp-email-settings&tab=statistics" class="nav-tab <?php echo $active_tab == 'statistics' ? 'nav-tab-active' : ''; ?>">Statistics</a>
         <a href="?page=wp-email-settings&tab=settings" class="nav-tab <?php echo $active_tab == 'settings' ? 'nav-tab-active' : ''; ?>">Settings</a>
         <a href="?page=wp-email-settings&tab=logs" class="nav-tab <?php echo $active_tab == 'logs' ? 'nav-tab-active' : ''; ?>">Logs</a>
-        <a href="?page=wp-email-settings&tab=statistics" class="nav-tab <?php echo $active_tab == 'statistics' ? 'nav-tab-active' : ''; ?>">Statistics</a>
       </h2>
       <div class="wp-email-settings-box">
         <?php
-        if ($active_tab == 'settings') {
-          $this->render_settings_tab();
-        } elseif ($active_tab == 'logs') {
-          $this->render_log_page();
-        } else {
+        if ($active_tab == 'statistics') {
           $this->render_statistics_page();
+        } elseif ($active_tab == 'settings') {
+          $this->render_settings_tab();
+        } else {
+          $this->render_log_page();
         }
         ?>
       </div>
@@ -170,7 +170,7 @@ class WP_Email_Settings
     <div class="wp-email-settings-log">
       <?php
       foreach ($log_entries as $index => $entry) {
-        $parts = explode(' | ', $entry);
+        $parts = explode('|', $entry);
         $timestamp = array_shift($parts);
         echo '<div class="log-entry">';
         echo '<span class="log-number">' . ($index + 1) . '</span>';
@@ -205,6 +205,36 @@ class WP_Email_Settings
       'new_user_emails' => 'New User Emails',
       'comment_emails' => 'Comment Notification Emails'
     );
+
+    // Initialize statistics arrays
+    $daily_stats = array();
+    $weekly_stats = array();
+    $monthly_stats = array();
+
+    // Get the oldest log entry date
+    $oldest_date = date('Y-m-d', strtotime(substr($log_entries[0], 0, 10)));
+    $current_date = date('Y-m-d');
+
+    // Initialize all days, weeks, and months from the oldest log to current date
+    for ($date = $oldest_date; $date <= $current_date; $date = date('Y-m-d', strtotime($date . ' +1 day'))) {
+      $daily_stats[$date] = 0;
+      $week = date('Y-W', strtotime($date));
+      $month = date('Y-m', strtotime($date));
+      $weekly_stats[$week] = isset($weekly_stats[$week]) ? $weekly_stats[$week] : 0;
+      $monthly_stats[$month] = isset($monthly_stats[$month]) ? $monthly_stats[$month] : 0;
+    }
+
+    // Count emails for each day, week, and month
+    foreach ($log_entries as $entry) {
+      $entry_date = substr($entry, 0, 10);
+      if (isset($daily_stats[$entry_date])) {
+        $daily_stats[$entry_date]++;
+        $week = date('Y-W', strtotime($entry_date));
+        $month = date('Y-m', strtotime($entry_date));
+        $weekly_stats[$week]++;
+        $monthly_stats[$month]++;
+      }
+    }
 
   ?>
     <h3>Email Statistics</h3>
@@ -243,6 +273,57 @@ class WP_Email_Settings
       }
       ?>
     </ul>
+
+    <h3>Daily Statistics</h3>
+    <table class="wp-list-table widefat fixed striped">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Count</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php
+        foreach ($daily_stats as $date => $count) {
+          echo "<tr><td>{$date}</td><td>{$count}</td></tr>";
+        }
+        ?>
+      </tbody>
+    </table>
+
+    <h3>Weekly Statistics</h3>
+    <table class="wp-list-table widefat fixed striped">
+      <thead>
+        <tr>
+          <th>Week</th>
+          <th>Count</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php
+        foreach ($weekly_stats as $week => $count) {
+          echo "<tr><td>{$week}</td><td>{$count}</td></tr>";
+        }
+        ?>
+      </tbody>
+    </table>
+
+    <h3>Monthly Statistics</h3>
+    <table class="wp-list-table widefat fixed striped">
+      <thead>
+        <tr>
+          <th>Month</th>
+          <th>Count</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php
+        foreach ($monthly_stats as $month => $count) {
+          echo "<tr><td>{$month}</td><td>{$count}</td></tr>";
+        }
+        ?>
+      </tbody>
+    </table>
 <?php
   }
 
