@@ -3,8 +3,8 @@
 /**
  * Plugin Name: WP Email Stopper
  * Plugin URI: http://example.com/wp-email-stopper
- * Description: A plugin to stop typical WordPress email addresses with customizable settings
- * Version: 1.1
+ * Description: A plugin to stop and log WordPress emails with customizable settings
+ * Version: 1.3
  * Author: Your Name
  * Author URI: http://example.com
  * License: GPL2
@@ -18,11 +18,13 @@ if (!defined('ABSPATH')) {
 class WP_Email_Stopper
 {
   private $options;
+  private $log_file;
 
   public function __construct()
   {
+    $this->log_file = WP_CONTENT_DIR . '/wp-email-stopper-log.txt';
     add_action('init', array($this, 'init'));
-    add_action('admin_menu', array($this, 'add_settings_page'));
+    add_action('admin_menu', array($this, 'add_admin_menu'));
     add_action('admin_init', array($this, 'register_settings'));
   }
 
@@ -30,50 +32,65 @@ class WP_Email_Stopper
   {
     $this->options = get_option('wp_email_stopper_options');
 
-    // Disable all emails if the option is set
-    if (isset($this->options['disable_all_emails']) && $this->options['disable_all_emails']) {
-      add_filter('wp_mail', array($this, 'disable_all_emails'), 10, 1);
-    } else {
-      // Disable specific email notifications based on settings
-      if (isset($this->options['disable_update_emails']) && $this->options['disable_update_emails']) {
-        add_filter('auto_core_update_send_email', '__return_false');
-        add_filter('auto_plugin_update_send_email', '__return_false');
-        add_filter('auto_theme_update_send_email', '__return_false');
-      }
-      if (isset($this->options['disable_password_emails']) && $this->options['disable_password_emails']) {
-        add_filter('send_password_change_email', '__return_false');
-      }
-      if (isset($this->options['disable_email_change_emails']) && $this->options['disable_email_change_emails']) {
-        add_filter('send_email_change_email', '__return_false');
-      }
-      if (isset($this->options['disable_new_user_emails']) && $this->options['disable_new_user_emails']) {
-        add_filter('wp_new_user_notification_email_admin', '__return_false');
-        add_filter('wp_new_user_notification_email', '__return_false');
-      }
-      if (isset($this->options['disable_comment_emails']) && $this->options['disable_comment_emails']) {
-        add_filter('comment_notification_recipients', '__return_empty_array');
-        add_filter('comment_moderation_recipients', '__return_empty_array');
+    // Always intercept emails for logging
+    add_filter('wp_mail', array($this, 'intercept_email'), 10, 1);
+  }
+
+  public function intercept_email($args)
+  {
+    // Log the email
+    $this->log_email($args);
+
+    // Check if all emails should be stopped
+    if (isset($this->options['stop_all_emails']) && $this->options['stop_all_emails']) {
+      return array();
+    }
+
+    // Check individual email types
+    $email_types = array(
+      'update_emails' => array('auto_core_update_send_email', 'auto_plugin_update_send_email', 'auto_theme_update_send_email'),
+      'password_emails' => array('send_password_change_email'),
+      'email_change_emails' => array('send_email_change_email'),
+      'new_user_emails' => array('wp_new_user_notification_email_admin', 'wp_new_user_notification_email'),
+      'comment_emails' => array('comment_notification_recipients', 'comment_moderation_recipients')
+    );
+
+    foreach ($email_types as $option => $filters) {
+      if (isset($this->options["stop_{$option}"]) && $this->options["stop_{$option}"]) {
+        foreach ($filters as $filter) {
+          add_filter($filter, '__return_false');
+        }
       }
     }
+
+    return $args;
   }
 
-  public function disable_all_emails($args)
+  public function log_email($args)
   {
-    // Log the email attempt (optional)
-    error_log('Email blocked: ' . print_r($args, true));
-
-    // Return an empty array to prevent the email from being sent
-    return array();
+    $to = is_array($args['to']) ? implode(', ', $args['to']) : $args['to'];
+    $log_entry = date('Y-m-d H:i:s') . " - To: " . $to . " - Subject: " . $args['subject'] . "\n";
+    file_put_contents($this->log_file, $log_entry, FILE_APPEND);
   }
 
-  public function add_settings_page()
+  public function add_admin_menu()
   {
-    add_options_page(
-      'WP Email Stopper Settings',
+    $main_page = add_menu_page(
+      'WP Email Stopper',
       'Email Stopper',
       'manage_options',
       'wp-email-stopper',
-      array($this, 'render_settings_page')
+      array($this, 'render_settings_page'),
+      'dashicons-email-alt'
+    );
+
+    add_submenu_page(
+      'wp-email-stopper',
+      'Email Log',
+      'Email Log',
+      'manage_options',
+      'wp-email-stopper-log',
+      array($this, 'render_log_page')
     );
   }
 
@@ -88,64 +105,30 @@ class WP_Email_Stopper
       'wp-email-stopper'
     );
 
-    add_settings_field(
-      'disable_all_emails',
-      'Disable All Emails',
-      array($this, 'render_checkbox'),
-      'wp-email-stopper',
-      'wp_email_stopper_main',
-      array('disable_all_emails')
+    $email_options = array(
+      'stop_all_emails' => 'Stop All Emails',
+      'stop_update_emails' => 'Stop Update Emails',
+      'stop_password_emails' => 'Stop Password Change Emails',
+      'stop_email_change_emails' => 'Stop Email Change Notifications',
+      'stop_new_user_emails' => 'Stop New User Emails',
+      'stop_comment_emails' => 'Stop Comment Notification Emails'
     );
 
-    add_settings_field(
-      'disable_update_emails',
-      'Disable Update Emails',
-      array($this, 'render_checkbox'),
-      'wp-email-stopper',
-      'wp_email_stopper_main',
-      array('disable_update_emails')
-    );
-
-    add_settings_field(
-      'disable_password_emails',
-      'Disable Password Change Emails',
-      array($this, 'render_checkbox'),
-      'wp-email-stopper',
-      'wp_email_stopper_main',
-      array('disable_password_emails')
-    );
-
-    add_settings_field(
-      'disable_email_change_emails',
-      'Disable Email Change Notifications',
-      array($this, 'render_checkbox'),
-      'wp-email-stopper',
-      'wp_email_stopper_main',
-      array('disable_email_change_emails')
-    );
-
-    add_settings_field(
-      'disable_new_user_emails',
-      'Disable New User Emails',
-      array($this, 'render_checkbox'),
-      'wp-email-stopper',
-      'wp_email_stopper_main',
-      array('disable_new_user_emails')
-    );
-
-    add_settings_field(
-      'disable_comment_emails',
-      'Disable Comment Notification Emails',
-      array($this, 'render_checkbox'),
-      'wp-email-stopper',
-      'wp_email_stopper_main',
-      array('disable_comment_emails')
-    );
+    foreach ($email_options as $option => $label) {
+      add_settings_field(
+        $option,
+        $label,
+        array($this, 'render_checkbox'),
+        'wp-email-stopper',
+        'wp_email_stopper_main',
+        array($option)
+      );
+    }
   }
 
   public function section_text()
   {
-    echo '<p>Choose which types of emails you want to disable:</p>';
+    echo '<p>Choose which types of emails you want to stop:</p>';
   }
 
   public function render_checkbox($args)
@@ -167,6 +150,18 @@ class WP_Email_Stopper
         submit_button();
         ?>
       </form>
+    </div>
+  <?php
+  }
+
+  public function render_log_page()
+  {
+  ?>
+    <div class="wrap">
+      <h1>Email Log</h1>
+      <textarea readonly style="width: 100%; height: 600px;">
+                <?php echo file_get_contents($this->log_file); ?>
+            </textarea>
     </div>
 <?php
   }
