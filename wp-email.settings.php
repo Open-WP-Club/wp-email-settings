@@ -4,7 +4,7 @@
  * Plugin Name: WP Email Stopper
  * Plugin URI: http://example.com/wp-email-stopper
  * Description: A plugin to stop and log WordPress emails with customizable settings
- * Version: 1.3
+ * Version: 1.4
  * Author: Your Name
  * Author URI: http://example.com
  * License: GPL2
@@ -75,22 +75,23 @@ class WP_Email_Stopper
 
   public function add_admin_menu()
   {
-    $main_page = add_menu_page(
-      'WP Email Stopper',
+    // Add settings page under Settings menu
+    add_options_page(
+      'WP Email Stopper Settings',
       'Email Stopper',
       'manage_options',
       'wp-email-stopper',
-      array($this, 'render_settings_page'),
-      'dashicons-email-alt'
+      array($this, 'render_settings_page')
     );
 
-    add_submenu_page(
-      'wp-email-stopper',
-      'Email Log',
-      'Email Log',
+    // Add top-level menu for logs
+    add_menu_page(
+      'Email Logs',
+      'Email Logs',
       'manage_options',
       'wp-email-stopper-log',
-      array($this, 'render_log_page')
+      array($this, 'render_log_page'),
+      'dashicons-email-alt'
     );
   }
 
@@ -158,7 +159,7 @@ class WP_Email_Stopper
   {
   ?>
     <div class="wrap">
-      <h1>Email Log</h1>
+      <h1>Email Logs</h1>
       <textarea readonly style="width: 100%; height: 600px;">
                 <?php echo file_get_contents($this->log_file); ?>
             </textarea>
