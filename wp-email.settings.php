@@ -1,13 +1,16 @@
 <?php
 
 /**
- * Plugin Name: WP Email Settings
- * Plugin URI: http://example.com/wp-email-settings
- * Description: A plugin to manage and log WordPress emails with customizable settings and comprehensive statistics
- * Version: 2.4
- * Author: Your Name
- * Author URI: http://example.com
- * License: GPL2
+ * Plugin Name:             WP Email Settings
+ * Plugin URI:              https://github.com/Open-WP-Club/wp-email-settings
+ * Description:             A plugin to manage and log WordPress emails with customizable settings, comprehensive statistics, and email validation
+ * Version:                 1.0.1
+ * Author:                  Open WP Club
+ * Author URI:              https://openwpclub.com
+ * License:                 GPL-2.0 License
+ * Requires at least:       6.0
+ * Requires PHP:            7.4
+ * Tested up to:            6.6.2
  */
 
 // Exit if accessed directly
@@ -28,6 +31,8 @@ class WP_Email_Settings
     add_action('admin_init', array($this, 'register_settings'));
     add_action('admin_bar_menu', array($this, 'add_admin_bar_menu'), 100);
     add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_styles'));
+    add_action('register_post', array($this, 'validate_email_numbers'), 10, 3);
+    add_action('plugins_loaded', array($this, 'check_for_woocommerce'));
   }
 
   public function init()
@@ -109,6 +114,21 @@ class WP_Email_Settings
         array($option)
       );
     }
+
+    add_settings_section(
+      'wp_email_settings_validator',
+      'Email Validator Settings',
+      null,
+      'wp-email-settings-validator'
+    );
+
+    add_settings_field(
+      'email_number_limit',
+      'Number Limit',
+      array($this, 'render_number_limit_field'),
+      'wp-email-settings-validator',
+      'wp_email_settings_validator'
+    );
   }
 
   public function section_text()
@@ -123,6 +143,13 @@ class WP_Email_Settings
     echo "<input type='checkbox' id='$option_name' name='wp_email_settings_options[$option_name]' value='1' $checked />";
   }
 
+  public function render_number_limit_field()
+  {
+    $number_limit = isset($this->options['email_number_limit']) ? $this->options['email_number_limit'] : 4;
+    echo "<input type='number' name='wp_email_settings_options[email_number_limit]' value='{$number_limit}' min='1' max='10'>";
+    echo "<p class='description'>Set the maximum number of digits allowed in the email address for registration.</p>";
+  }
+
   public function render_settings_page()
   {
     $active_tab = isset($_GET['tab']) ? $_GET['tab'] : 'statistics';
@@ -131,17 +158,20 @@ class WP_Email_Settings
       <h1>WP Email Settings</h1>
       <h2 class="nav-tab-wrapper">
         <a href="?page=wp-email-settings&tab=statistics" class="nav-tab <?php echo $active_tab == 'statistics' ? 'nav-tab-active' : ''; ?>">Statistics</a>
-        <a href="?page=wp-email-settings&tab=settings" class="nav-tab <?php echo $active_tab == 'settings' ? 'nav-tab-active' : ''; ?>">Settings</a>
+        <a href="?page=wp-email-settings&tab=validator" class="nav-tab <?php echo $active_tab == 'validator' ? 'nav-tab-active' : ''; ?>">Validator</a>
         <a href="?page=wp-email-settings&tab=logs" class="nav-tab <?php echo $active_tab == 'logs' ? 'nav-tab-active' : ''; ?>">Logs</a>
+        <a href="?page=wp-email-settings&tab=settings" class="nav-tab <?php echo $active_tab == 'settings' ? 'nav-tab-active' : ''; ?>">Settings</a>
       </h2>
       <div class="wp-email-settings-box">
         <?php
         if ($active_tab == 'statistics') {
           $this->render_statistics_page();
+        } elseif ($active_tab == 'validator') {
+          $this->render_validator_tab();
+        } elseif ($active_tab == 'logs') {
+          $this->render_log_page();
         } elseif ($active_tab == 'settings') {
           $this->render_settings_tab();
-        } else {
-          $this->render_log_page();
         }
         ?>
       </div>
@@ -167,6 +197,13 @@ class WP_Email_Settings
     $log_content = file_get_contents($this->log_file);
     $log_entries = array_filter(explode("\n", $log_content));
   ?>
+    <div class="wp-email-settings-log-header">
+      <h2>Email Log</h2>
+      <form method="post" class="wp-email-settings-clear-log-form">
+        <?php wp_nonce_field('wp_email_settings_clear_log', 'wp_email_settings_clear_log_nonce'); ?>
+        <input type="submit" name="wp_email_settings_clear_log" class="button button-secondary" value="Clear Log">
+      </form>
+    </div>
     <div class="wp-email-settings-log">
       <?php
       foreach ($log_entries as $index => $entry) {
@@ -190,6 +227,7 @@ class WP_Email_Settings
       ?>
     </div>
   <?php
+    $this->handle_log_actions();
   }
 
   public function render_statistics_page()
@@ -206,16 +244,13 @@ class WP_Email_Settings
       'comment_emails' => 'Comment Notification Emails'
     );
 
-    // Initialize statistics arrays
     $daily_stats = array();
     $weekly_stats = array();
     $monthly_stats = array();
 
-    // Get the oldest log entry date
     $oldest_date = date('Y-m-d', strtotime(substr($log_entries[0], 0, 10)));
     $current_date = date('Y-m-d');
 
-    // Initialize all days, weeks, and months from the oldest log to current date
     for ($date = $oldest_date; $date <= $current_date; $date = date('Y-m-d', strtotime($date . ' +1 day'))) {
       $daily_stats[$date] = 0;
       $week = date('Y-W', strtotime($date));
@@ -224,7 +259,6 @@ class WP_Email_Settings
       $monthly_stats[$month] = isset($monthly_stats[$month]) ? $monthly_stats[$month] : 0;
     }
 
-    // Count emails for each day, week, and month
     foreach ($log_entries as $entry) {
       $entry_date = substr($entry, 0, 10);
       if (isset($daily_stats[$entry_date])) {
@@ -324,7 +358,87 @@ class WP_Email_Settings
         ?>
       </tbody>
     </table>
+  <?php
+  }
+
+  public function render_validator_tab()
+  {
+  ?>
+    <h2>Email Validator Settings</h2>
+    <form method="post" action="options.php">
+      <?php
+      settings_fields('wp_email_settings_options');
+      do_settings_sections('wp-email-settings-validator');
+      submit_button();
+      ?>
+    </form>
+    <h2>Failed Registration Attempts</h2>
+    <div class="wp-email-settings-validator-actions">
+      <form method="post" class="wp-email-settings-download-form">
+        <?php wp_nonce_field('wp_email_settings_download_csv', 'wp_email_settings_download_nonce'); ?>
+        <input type="submit" name="wp_email_settings_download_csv" class="button button-primary" value="Download All CSV">
+      </form>
+      <form method="post" class="wp-email-settings-download-date-form">
+        <?php wp_nonce_field('wp_email_settings_download_csv_by_date', 'wp_email_settings_download_date_nonce'); ?>
+        <label for="start_date">Start Date:</label>
+        <input type="date" name="start_date" required>
+        <label for="end_date">End Date:</label>
+        <input type="date" name="end_date" required>
+        <input type="submit" name="wp_email_settings_download_csv_by_date" class="button button-primary" value="Download CSV by Date">
+      </form>
+    </div>
 <?php
+    $this->handle_validator_actions();
+  }
+
+  private function handle_validator_actions()
+  {
+    if (isset($_POST['wp_email_settings_download_csv']) && check_admin_referer('wp_email_settings_download_csv', 'wp_email_settings_download_nonce')) {
+      $this->download_failed_attempts_csv();
+    }
+
+    if (isset($_POST['wp_email_settings_download_csv_by_date']) && check_admin_referer('wp_email_settings_download_csv_by_date', 'wp_email_settings_download_date_nonce')) {
+      $start_date = sanitize_text_field($_POST['start_date']);
+      $end_date = sanitize_text_field($_POST['end_date']);
+      $this->download_failed_attempts_csv_by_date($start_date, $end_date);
+    }
+  }
+
+  private function handle_log_actions()
+  {
+    if (isset($_POST['wp_email_settings_clear_log']) && check_admin_referer('wp_email_settings_clear_log', 'wp_email_settings_clear_log_nonce')) {
+      file_put_contents($this->log_file, '');
+      add_settings_error('wp_email_settings_messages', 'wp_email_settings_message', __('Email log cleared.', 'wp-email-settings'), 'updated');
+    }
+  }
+
+  private function download_failed_attempts_csv($start_date = null, $end_date = null)
+  {
+    $failed_attempts = get_option('wp_email_settings_failed_attempts', array());
+
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename=failed_attempts.csv');
+
+    $output = fopen('php://output', 'w');
+    fputcsv($output, array('Username', 'Email', 'Time'));
+
+    foreach ($failed_attempts as $attempt) {
+      if ($start_date && $end_date) {
+        $attempt_time = strtotime($attempt['time']);
+        if ($attempt_time < strtotime($start_date) || $attempt_time > strtotime($end_date)) {
+          continue;
+        }
+      }
+      fputcsv($output, $attempt);
+    }
+
+    fclose($output);
+    exit;
+  }
+
+  private function download_failed_attempts_csv_by_date($start_date, $end_date)
+  {
+    $this->download_failed_attempts_csv($start_date, $end_date);
   }
 
   public function add_admin_bar_menu($wp_admin_bar)
@@ -356,6 +470,58 @@ class WP_Email_Settings
   public function enqueue_admin_styles()
   {
     wp_enqueue_style('wp-email-settings-admin-style', plugins_url('admin-style.css', __FILE__));
+  }
+
+  public function validate_email_numbers($username, $email, $errors)
+  {
+    $number_limit = isset($this->options['email_number_limit']) ? $this->options['email_number_limit'] : 4;
+    $number_count = preg_match_all('/\d/', $email);
+
+    if ($number_count >= $number_limit) {
+      $errors->add(
+        'email_too_many_numbers',
+        sprintf(
+          __('Registration failed: The email address cannot contain %d or more numbers.', 'wp-email-settings'),
+          $number_limit
+        )
+      );
+      $this->log_failed_attempt($username, $email);
+    }
+  }
+
+  public function check_for_woocommerce()
+  {
+    if (class_exists('WooCommerce')) {
+      add_action('woocommerce_register_post', array($this, 'validate_woocommerce_email_numbers'), 10, 3);
+    }
+  }
+
+  public function validate_woocommerce_email_numbers($username, $email, $errors)
+  {
+    $number_limit = isset($this->options['email_number_limit']) ? $this->options['email_number_limit'] : 4;
+    $number_count = preg_match_all('/\d/', $email);
+
+    if ($number_count >= $number_limit) {
+      $errors->add(
+        'email_too_many_numbers',
+        sprintf(
+          __('WooCommerce registration failed: The email address cannot contain %d or more numbers.', 'wp-email-settings'),
+          $number_limit
+        )
+      );
+      $this->log_failed_attempt($username, $email);
+    }
+  }
+
+  private function log_failed_attempt($username, $email)
+  {
+    $failed_attempts = get_option('wp_email_settings_failed_attempts', array());
+    $failed_attempts[] = array(
+      'username' => $username,
+      'email' => $email,
+      'time' => current_time('mysql'),
+    );
+    update_option('wp_email_settings_failed_attempts', $failed_attempts);
   }
 }
 
